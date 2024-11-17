@@ -1,33 +1,34 @@
-from rest_framework import viewsets, permissions, status
-from rest_framework.response import Response
-from rest_framework.decorators import action
+from rest_framework import viewsets, permissions
 from rest_framework.exceptions import PermissionDenied
+from rest_framework.throttling import AnonRateThrottle, UserRateThrottle
+
+from .models import Advertisement
+from .serializers import AdvertisementSerializer
+from .filters import AdvertisementFilter
 
 
-from advertisements.models import Advertisement
-from advertisements.serializers import AdvertisementSerializer
-from advertisements.filters import AdvertisementFilter
-
-class AdvertisementViewSet(ModelViewSet):
+class AdvertisementViewSet(viewsets.ModelViewSet):
     """ViewSet для объявлений."""
 
-    queryset = Advetsement.objects.all()
+    queryset = Advertisement.objects.all()
     serializer_class = AdvertisementSerializer
     filter_class = AdvertisementFilter
+    throttle_classes = [AnonRateThrottle, UserRateThrottle]
 
     def get_permissions(self):
-        """Получение прав для действий."""
-        if self.action in ["create", "update", "partial_update"]:
-            return [permutations.IsAuthenticated()]
-        return [permutations.AllowAny()]
+        """Права доступа на основе действия."""
+        if self.action in ["create", "update", "partial_update", "destroy"]:
+            return [permissions.IsAuthenticated()]
+        return [permissions.AllowAny()]
 
-    def perform_create(self, serializer):
-        if self.request.user.advertisements.filter(status=Advertisement.OPEN) >=10:
-            raise serializer.ValidationError("You can't have more than 10 open advertisements.")
-        serializer.save(author=self.author.user)
+    def perform_destroy(self, instance):
+        """Удаление объявления с проверкой прав."""
+        if instance.creator != self.request.user:
+            raise PermissionDenied("You do not have permission to delete this advertisement.")
+        instance.delete()
 
-    def destroy(self,request,*args,**kwargs):
-        advertisement = self.get_object()
-        if advertisement.author != request.user:
-            raise PermissionDenied("You can only  delete your own advertisements")
-        return super().destoy(request,*args,**kwargs)
+    def perform_update(self, serializer):
+        """Обновление объявления с проверкой прав."""
+        if serializer.instance.creator != self.request.user:
+            raise PermissionDenied("You do not have permission to update this advertisement.")
+        serializer.save()

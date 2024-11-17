@@ -1,11 +1,11 @@
 from django.contrib.auth.models import User
 from rest_framework import serializers
 
-from advertisements.models import Advertisement
+from .models import Advertisement,AdvertisementStatusChoices
 
 
 class UserSerializer(serializers.ModelSerializer):
-    """Serializer для пользователя."""
+
 
     class Meta:
         model = User
@@ -14,7 +14,6 @@ class UserSerializer(serializers.ModelSerializer):
 
 
 class AdvertisementSerializer(serializers.ModelSerializer):
-    """Serializer для объявления."""
 
     creator = UserSerializer(
         read_only=True,
@@ -26,24 +25,22 @@ class AdvertisementSerializer(serializers.ModelSerializer):
                   'status', 'created_at', )
 
     def create(self, validated_data):
-        """Метод для создания"""
 
-        # Простановка значения поля создатель по-умолчанию.
-        # Текущий пользователь является создателем объявления
-        # изменить или переопределить его через API нельзя.
-        # обратите внимание на `context` – он выставляется автоматически
-        # через методы ViewSet.
-        # само поле при этом объявляется как `read_only=True`
-        validated_data["creator"] = self.context["request"].user
+        request = self.context.get("request")
+        if not request or not request.user.is_authenticated:
+            raise serializers.ValidationError("User must be authenticated to create an advertisement.")
+        validated_data["creator"] = request.user
         return super().create(validated_data)
 
     def validate(self, data):
-        """Метод для валидации. Вызывается при создании и обновлении."""
+        user = self.context["request"].user
+        open_ads_count = Advertisement.objects.filter(
+            creator=user,
+            status=AdvertisementStatusChoices.OPEN
+        ).count()
 
-        user = self.context['context'].user
-        if data.get("status") == "OPEN":
-            open_abs_count = Advertisement.objects.filter(create=user, status="OPEN").count()
-            if open_abs_count >= 10:
-                raise ValidationError("You can't have more that 10 open advertisements")
-
+        if data.get('status') == AdvertisementStatusChoices.OPEN and open_ads_count >= 10:
+            raise serializers.ValidationError(
+                "You can't have more than 10 open advertisements."
+            )
         return data
